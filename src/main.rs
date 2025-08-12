@@ -363,9 +363,9 @@ impl<'a> LoginManager<'a> {
                         if self.cursor_pos == 0 {
                             continue;
                         }
-                        self.cursor_pos -= 1;
+                        self.retreat_cursor(field);
                     }
-                    if self.cursor_pos <= field.len() {
+                    if self.cursor_pos < field.len() {
                         field.remove(self.cursor_pos);
                     }
                 }
@@ -409,7 +409,8 @@ impl<'a> LoginManager<'a> {
                     Mode::SelectingSession => {
                         self.target_index = (self.target_index + 1) % self.targets.len()
                     }
-                    _ => self.cursor_pos += 1,
+                    Mode::EditingUsername => self.advance_cursor(&username),
+                    Mode::EditingPassword => self.advance_cursor(&password),
                 },
                 Key::Left => match self.mode {
                     Mode::SelectingSession => {
@@ -418,7 +419,8 @@ impl<'a> LoginManager<'a> {
                         }
                         self.target_index -= 1;
                     }
-                    _ => self.cursor_pos = self.cursor_pos.saturating_sub(1),
+                    Mode::EditingUsername => self.retreat_cursor(&username),
+                    Mode::EditingPassword => self.retreat_cursor(&password),
                 },
                 Key::Other(k) => {
                     let field = match self.mode {
@@ -426,13 +428,31 @@ impl<'a> LoginManager<'a> {
                         Mode::EditingPassword => &mut password,
                         Mode::SelectingSession => continue,
                     };
-                    field.insert(self.cursor_pos, k as char);
-                    self.cursor_pos += 1;
+                    // TODO: proper unicode input?
+                    let ch = k as char;
+                    field.insert(self.cursor_pos, ch);
+                    self.cursor_pos += ch.len_utf8();
                 }
                 Key::OtherEsc(_) | Key::OtherCsi(_) => (), // shrug
             }
             self.refresh();
         }
+    }
+
+    fn retreat_cursor(&mut self, field: &str) {
+        let Some(prev_char) = field[..self.cursor_pos].chars().last() else {
+            // the cursor is already at the start of the field
+            return;
+        };
+        self.cursor_pos -= prev_char.len_utf8();
+    }
+
+    fn advance_cursor(&mut self, field: &str) {
+        let Some(next_char) = field[self.cursor_pos..].chars().next() else {
+            // the cursor is already at the end of the field
+            return;
+        };
+        self.cursor_pos += next_char.len_utf8();
     }
 }
 

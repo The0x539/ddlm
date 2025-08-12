@@ -121,37 +121,32 @@ impl Font {
         s: &str,
         cursor_pos: Option<usize>,
     ) -> Result<(u32, u32), DrawError> {
-        let mut x_off = 0;
         let mut off = 0;
         let mut glyphs = Vec::with_capacity(s.len());
-        for ch in s.chars() {
-            let glyph = match self.glyphs.get(&ch) {
-                Some(glyph) => glyph,
-                None => return Err(DrawError::GlyphNotInCache(ch)),
-            };
-            glyphs.push(glyph);
-            if glyph.origin.1 < off {
-                off = glyph.origin.1
-            }
+        for (idx, ch) in s.char_indices() {
+            let glyph = self.glyphs.get(&ch).ok_or(DrawError::GlyphNotInCache(ch))?;
+            glyphs.push((idx, glyph));
+            off = off.min(glyph.origin.1);
         }
 
         let mut cursor_x = None;
 
-        for (i, glyph) in glyphs.iter().enumerate() {
-            if cursor_pos == Some(i) {
-                cursor_x = Some(x_off);
+        let mut x_off = 0;
+        for (idx, glyph) in glyphs {
+            if cursor_pos == Some(idx) {
+                cursor_x = Some(x_off as u32);
             }
             glyph.draw(buf, (x_off, -off), bg, c);
             x_off += glyph.dimensions.0 as i32 + glyph.origin.0;
         }
 
-        if cursor_pos >= Some(glyphs.len()) {
-            cursor_x = Some(x_off);
+        if cursor_pos >= Some(s.len()) {
+            cursor_x = Some(x_off as u32);
         }
 
         if let Some(x) = cursor_x {
             for y in 0..(self.size as u32) {
-                _ = buf.put((x as u32, y), c);
+                _ = buf.put((x, y), c);
             }
         }
 
