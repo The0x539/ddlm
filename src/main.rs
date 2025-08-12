@@ -1,12 +1,12 @@
 #![deny(rust_2018_idioms)]
 
 use std::fs;
-use std::io::Read;
 use std::path::Path;
 
 use color::Color;
 use framebuffer::{Framebuffer, KdMode, VarScreeninfo};
 use freedesktop_desktop_entry::DesktopEntry;
+use input::{InputStream, Key};
 use termion::raw::IntoRawMode;
 use thiserror::Error;
 
@@ -21,6 +21,7 @@ mod buffer;
 mod color;
 mod draw;
 mod greetd;
+mod input;
 
 #[derive(PartialEq, Copy, Clone)]
 enum Mode {
@@ -287,15 +288,7 @@ impl<'a> LoginManager<'a> {
         let mut last_mode = self.mode;
         let mut had_failure = false;
 
-        let stdin_handle = std::io::stdin();
-        let stdin_lock = stdin_handle.lock();
-        let mut stdin_bytes = stdin_lock.bytes();
-
-        fn quit() -> u8 {
-            Framebuffer::set_kd_mode(KdMode::Text).expect("unable to leave graphics mode");
-            std::process::exit(1);
-        }
-        let mut read_byte = || stdin_bytes.next().and_then(Result::ok).unwrap_or_else(quit);
+        let mut input = InputStream::new();
 
         self.draw_target().expect("unable to draw target session");
 
@@ -326,22 +319,19 @@ impl<'a> LoginManager<'a> {
                 had_failure = false;
             }
 
-            match read_byte() as char {
-                '\x15' | '\x0B' => match self.mode {
-                    // ctrl-k/ctrl-u
+            match input.next() {
+                Key::CtrlK | Key::CtrlU => match self.mode {
                     Mode::SelectingSession => (),
                     Mode::EditingUsername => username.clear(),
                     Mode::EditingPassword => password.clear(),
                 },
-                '\x03' | '\x04' => {
-                    // ctrl-c/ctrl-D
+                Key::CtrlC | Key::CtrlD => {
                     username.clear();
                     password.clear();
                     self.greetd.cancel();
                     return;
                 }
-                '\x7F' => match self.mode {
-                    // backspace
+                Key::Backspace => match self.mode {
                     Mode::SelectingSession => (),
                     Mode::EditingUsername => {
                         username.pop();
@@ -350,8 +340,7 @@ impl<'a> LoginManager<'a> {
                         password.pop();
                     }
                 },
-                '\t' => self.goto_next_mode(),
-                '\r' => match self.mode {
+                Key::Return => match self.mode {
                     Mode::SelectingSession => self.mode = Mode::EditingUsername,
                     Mode::EditingUsername => {
                         if !username.is_empty() {
@@ -385,35 +374,29 @@ impl<'a> LoginManager<'a> {
                         }
                     }
                 },
-                // this is terrible
-                '\x1b' => match read_byte() {
-                    b'[' => match read_byte() {
-                        b'A' => self.goto_prev_mode(),
-                        b'B' => self.goto_next_mode(),
-                        b'C' => match self.mode {
-                            Mode::SelectingSession => {
-                                self.target_index = (self.target_index + 1) % self.targets.len()
-                            }
-                            _ => (), // TODO: cursor
-                        },
-                        b'D' => match self.mode {
-                            Mode::SelectingSession => {
-                                if self.target_index == 0 {
-                                    self.target_index = self.targets.len();
-                                }
-                                self.target_index -= 1;
-                            }
-                            _ => (), // TODO: cursor
-                        },
-                        _ => (), // shrug
-                    },
-                    _ => (), // shrug
+                Key::Up => self.goto_prev_mode(),
+                Key::Down | Key::Tab => self.goto_next_mode(),
+                Key::Right => match self.mode {
+                    Mode::SelectingSession => {
+                        self.target_index = (self.target_index + 1) % self.targets.len()
+                    }
+                    _ => (), // TODO: cursor
                 },
-                v => match self.mode {
+                Key::Left => match self.mode {
+                    Mode::SelectingSession => {
+                        if self.target_index == 0 {
+                            self.target_index = self.targets.len();
+                        }
+                        self.target_index -= 1;
+                    }
+                    _ => (), // TODO: cursor
+                },
+                Key::Other(v) => match self.mode {
                     Mode::SelectingSession => (),
                     Mode::EditingUsername => username.push(v as char),
                     Mode::EditingPassword => password.push(v as char),
                 },
+                Key::OtherEsc(_) | Key::OtherCsi(_) => (), // shrug
             }
             self.refresh();
         }
