@@ -119,6 +119,7 @@ impl Font {
         bg: &Color,
         c: &Color,
         s: &str,
+        cursor_pos: Option<usize>,
     ) -> Result<(u32, u32), DrawError> {
         let mut x_off = 0;
         let mut off = 0;
@@ -133,9 +134,25 @@ impl Font {
                 off = glyph.origin.1
             }
         }
-        for glyph in glyphs {
+
+        let mut cursor_x = None;
+
+        for (i, glyph) in glyphs.iter().enumerate() {
+            if cursor_pos == Some(i) {
+                cursor_x = Some(x_off);
+            }
             glyph.draw(buf, (x_off, -off), bg, c);
             x_off += glyph.dimensions.0 as i32 + glyph.origin.0;
+        }
+
+        if cursor_pos >= Some(glyphs.len()) {
+            cursor_x = Some(x_off);
+        }
+
+        if let Some(x) = cursor_x {
+            for y in 0..(self.size as u32) {
+                _ = buf.put((x as u32, y), c);
+            }
         }
 
         Ok((x_off as u32, self.size as u32))
@@ -147,9 +164,10 @@ impl Font {
         bg: &Color,
         c: &Color,
         s: &str,
+        cursor_pos: Option<usize>,
     ) -> Result<(u32, u32), DrawError> {
         self.add_str_to_cache(s);
-        self.draw_text(buf, bg, c, s)
+        self.draw_text(buf, bg, c, s, cursor_pos)
     }
 }
 
